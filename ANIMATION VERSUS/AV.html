@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Animation VS Game - Dark Build</title>
+<style>
+    @font-face {
+        font-family: 'Pixel';
+        src: url('https://fonts.cdnfonts.com/s/77134/DeterminationMonoWebRegular.woff') format('woff');
+    }
+
+    body { margin: 0; background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; height: 100vh; font-family: 'Pixel', sans-serif; }
+    
+    #game-container { 
+        position: relative; 
+        width: 1200px; 
+        height: 600px; 
+        background: #1a1a1a; /* Dark theme background */
+        border: 2px solid #333; 
+        overflow: hidden; 
+    }
+
+    /* Interface Styles from image_0de0f7.jpg */
+    #start-screen {
+        position: absolute;
+        width: 100%; height: 100%;
+        background: linear-gradient(to bottom, #1a1a4a, #0a0a2a);
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+    }
+    #start-screen.active { display: flex; }
+
+    .logo-container { text-align: center; margin-bottom: 20px; }
+    .logo-main { font-size: 80px; color: white; text-shadow: 4px 4px 0px #000; margin: 0; letter-spacing: 2px; }
+    .logo-sub { font-size: 100px; color: #ff4d00; font-style: italic; text-shadow: 6px 6px 0px #000; margin: -20px 0 10px 0; }
+    .dev-build-tag { color: white; font-size: 20px; margin-bottom: 20px; }
+
+    .menu-window {
+        background: #cccccc;
+        border: 4px solid #888;
+        border-radius: 12px;
+        width: 280px;
+        padding: 8px;
+        box-shadow: 8px 8px 0px rgba(0,0,0,0.5);
+    }
+    .window-header { height: 20px; display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 8px; }
+    .dot { width: 10px; height: 10px; background: #888; border-radius: 50%; }
+
+    .menu-options {
+        background: white;
+        border: 3px solid #666;
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        padding: 4px;
+    }
+    .menu-btn {
+        background: none; border: none;
+        font-family: 'Pixel', sans-serif;
+        font-size: 24px; padding: 10px;
+        text-align: center; cursor: pointer;
+        color: #333; width: 100%;
+    }
+    .menu-btn:hover { background: #eee; }
+    .menu-btn.selected {
+        background: #e0e0e0;
+        border: 2px solid #000;
+        border-radius: 6px;
+        box-shadow: inset 2px 2px 0px #888;
+    }
+
+    #player { 
+        position: absolute; 
+        width: 250px; height: 250px; 
+        margin-left: -125px; margin-top: -125px; 
+        pointer-events: none; 
+        display: flex; justify-content: center; align-items: center; 
+        z-index: 10; 
+    }
+    #player img { 
+        width: 100%; height: 100%; 
+        object-fit: contain; 
+        image-rendering: pixelated; 
+        filter: none; /* Keep original colors */
+    }
+
+    #floor { 
+        position: absolute; bottom: 0; 
+        width: 100%; height: 150px; 
+        background: #252525; 
+        border-top: 4px solid #444; 
+        box-shadow: inset 0 10px 20px rgba(0,0,0,0.5);
+    }
+
+    .dust {
+        position: absolute;
+        width: 8px; height: 8px;
+        background: rgba(255, 255, 255, 0.4);
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 5;
+        animation: dustFade 0.3s ease-out forwards;
+    }
+    @keyframes dustFade {
+        0% { transform: scale(1) translateY(0); opacity: 0.6; }
+        100% { transform: scale(2) translateY(-15px); opacity: 0; }
+    }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="start-screen" class="screen active">
+        <div class="logo-container">
+            <h1 class="logo-main">ANIMATION</h1>
+            <h1 class="logo-sub">VERSUS</h1>
+            <div class="dev-build-tag">development build</div>
+        </div>
+        <div class="menu-window">
+            <div class="window-header">
+                <div class="dot"></div><div class="dot"></div>
+            </div>
+            <div class="menu-options">
+                <button class="menu-btn">Local 2P</button>
+                <button class="menu-btn selected" onclick="startGame()">Training</button>
+                <button class="menu-btn">Window Size</button>
+                <button class="menu-btn">Toggle Music</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="floor"></div>
+    <div id="player">
+        <img id="player-gif" src="idle.gif">
+    </div>
+</div>
+
+<script>
+    const container = document.getElementById('game-container');
+    const playerImg = document.getElementById('player-gif');
+    const playerElem = document.getElementById('player');
+    const startScreen = document.getElementById('start-screen');
+
+    let player = {
+        x: 600, y: 450, groundY: 450, // Matches the height of the black floor
+        velX: 0, velY: 0,
+        accel: 12, friction: 0.5, maxSpeed: 35,
+        gravity: 2.0, jumpForce: -28,
+        jumpCount: 0, lastGif: '',
+        isAttacking: false,
+        attackCooldown: false,
+        comboStep: 0,
+        attackStartTime: 0,
+        lastAttackType: '',
+        lastTapTime: { left: 0, right: 0 },
+        isRunning: { left: false, right: false },
+        moveStartTime: 0,
+        currentMoveDir: null,
+        backwardsDone: false
+    };
+
+    let keys = {};
+    let gameStarted = false;
+    let attackTimeout = null;
+
+    function startGame() {
+        startScreen.classList.remove('active');
+        gameStarted = true;
+        gameLoop();
+    }
+
+    window.addEventListener('keydown', e => { 
+        const key = e.key.toLowerCase();
+        const now = Date.now();
+        if (keys[key]) return; 
+
+        if (key === 'd' || key === 'arrowright') {
+            if (now - player.lastTapTime.right < 250) player.isRunning.right = true;
+            player.lastTapTime.right = now;
+        }
+        if (key === 'a' || key === 'arrowleft') {
+            if (now - player.lastTapTime.left < 250) player.isRunning.left = true;
+            player.lastTapTime.left = now;
+        }
+
+        if ((key === 'a' || key === 'arrowleft') && player.velX > 0) player.velX = 0;
+        if ((key === 'd' || key === 'arrowright') && player.velX < 0) player.velX = 0;
+        if (key === 'p') handleAttack('punch'); 
+        if (key === 'k') handleAttack('kick'); 
+        keys[key] = true; 
+    });
+
+    window.addEventListener('keyup', e => { 
+        const key = e.key.toLowerCase();
+        keys[key] = false; 
+        if (key === 'd' || key === 'arrowright') player.isRunning.right = false;
+        if (key === 'a' || key === 'arrowleft') {
+            player.isRunning.left = false;
+            player.backwardsDone = false;
+        }
+    });
+
+    function handleAttack(type) {
+        if (player.attackCooldown) return;
+        const now = Date.now();
+        const timeSinceStart = now - player.attackStartTime;
+        if (player.lastAttackType !== type && player.comboStep !== 0) player.comboStep = 0;
+        player.lastAttackType = type;
+
+        if (type === 'punch') {
+            if (player.comboStep === 0) executeAttack('Purple punch.gif', 500, 1);
+            else if (player.comboStep === 1) executeAttack('Purple uppercut.gif', 420, 2);
+        } else if (type === 'kick') {
+            if (player.comboStep === 0) executeAttack('Purple kick 1.gif', 1040, 1);
+            else if (player.comboStep === 1 && timeSinceStart >= 480) {
+                executeAttack('Purple kick 2.gif', 400, 2);
+            }
+        }
+    }
+
+    function executeAttack(gifFile, duration, step) {
+        player.isAttacking = true; player.comboStep = step; player.attackStartTime = Date.now();
+        playerImg.src = gifFile + "?v=" + Date.now(); 
+        player.lastGif = gifFile;
+        clearTimeout(attackTimeout);
+        attackTimeout = setTimeout(() => {
+            player.isAttacking = false;
+            if (player.comboStep === 2) {
+                player.attackCooldown = true; player.comboStep = 0; setGif('idle.gif');
+                setTimeout(() => { player.attackCooldown = false; }, 300);
+            } else {
+                setGif('idle.gif');
+                let cur = player.comboStep;
+                setTimeout(() => { if (!player.isAttacking && player.comboStep === cur) player.comboStep = 0; }, 400); 
+            }
+        }, duration);
+    }
+
+    function spawnDust(x, y) {
+        const dust = document.createElement('div');
+        dust.className = 'dust';
+        dust.style.left = (x + (Math.random() * 30 - 15)) + 'px';
+        dust.style.top = (y + 110) + 'px';
+        container.appendChild(dust);
+        setTimeout(() => dust.remove(), 300);
+    }
+
+    function setGif(file) {
+        if (player.lastGif === file || player.isAttacking) return;
+        playerImg.src = file; player.lastGif = file;
+    }
+
+    function update() {
+        if (!gameStarted) return;
+        let now = Date.now();
+        let moveRight = keys['d'] || keys['arrowright'];
+        let moveLeft = (keys['a'] || keys['arrowleft']) && !player.backwardsDone;
+        let jumpPressed = keys[' '] || keys['arrowup'] || keys['w'];
+
+        if (moveRight && player.currentMoveDir !== 'right') { player.currentMoveDir = 'right'; player.moveStartTime = now; }
+        else if (moveLeft && player.currentMoveDir !== 'left') { player.currentMoveDir = 'left'; player.moveStartTime = now; }
+        else if (!moveRight && !moveLeft) { player.currentMoveDir = null; }
+
+        if (player.isRunning.left && player.currentMoveDir === 'left' && (now - player.moveStartTime >= 350)) {
+            player.backwardsDone = true; player.currentMoveDir = null; moveLeft = false;
+        }
+
+        let canMoveX = true;
+        if (player.currentMoveDir === 'right' && now - player.moveStartTime < 120) canMoveX = false;
+        if (player.currentMoveDir === 'left' && now - player.moveStartTime < 110) canMoveX = false;
+
+        let currentAccel = player.isAttacking ? player.accel * 0.1 : player.accel; 
+        if (moveRight) player.velX += currentAccel;
+        else if (moveLeft) player.velX -= currentAccel;
+        else player.velX *= player.friction;
+
+        if (Math.abs(player.velX) > player.maxSpeed) player.velX = Math.sign(player.velX) * player.maxSpeed;
+        if (canMoveX || player.isAttacking) player.x += player.velX;
+
+        if (jumpPressed && player.jumpCount < 2 && !keys.jumpLock) {
+            player.velY = (player.jumpCount === 0) ? player.jumpForce : player.jumpForce * 0.8;
+            player.jumpCount++; keys.jumpLock = true;
+            for(let i=0; i<6; i++) spawnDust(player.x, player.y);
+        }
+        if (!jumpPressed) keys.jumpLock = false;
+
+        player.y += player.velY;
+        if (player.y < player.groundY) {
+            player.velY += player.gravity;
+        } else {
+            if (player.velY > 0) for(let i=0; i<4; i++) spawnDust(player.x, player.y);
+            player.y = player.groundY; 
+            player.velY = 0; 
+            player.jumpCount = 0;
+        }
+
+        if (!player.isAttacking) {
+            if (player.y < player.groundY) {
+                setGif(player.jumpCount > 1 ? 'Purple double jump.gif' : 'Purple jump.gif');
+            } else if (moveRight && player.isRunning.right) {
+                setGif('Purple forward run.gif');
+            } else if (moveLeft && player.isRunning.left) {
+                setGif('Purple backwards run.gif');
+            } else {
+                setGif('idle.gif');
+            }
+        }
+
+        if (player.x < 60) player.x = 60;
+        if (player.x > 1140) player.x = 1140;
+    }
+
+    function draw() { 
+        playerElem.style.left = player.x + 'px'; 
+        playerElem.style.top = player.y + 'px'; 
+    }
+    function gameLoop() { update(); draw(); requestAnimationFrame(gameLoop); }
+</script>
+</body>
+</html>
